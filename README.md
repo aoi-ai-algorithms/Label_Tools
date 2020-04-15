@@ -20,3 +20,7 @@ Installation step:
 
 ![alt text](https://github.com/HMFazleRabbi/Label_Tools/blob/master/doc/labelpy.png "cd and run labelImg.py")
 
+### Label tools coordinate format
+The label tool is designed to be used with YOLO (not Pascal) format where the label format is as follows
+
+<x1>,<y1>,<x2>,<y2>,<class>
