@@ -23,4 +23,4 @@ Installation step:
 ### Label tools coordinate format
 The label tool is designed to be used with YOLO (not Pascal) format where the label format is as follows
 
-<x1>,<y1>,<x2>,<y2>,<class>
+x1,y1,x2,y2,class
