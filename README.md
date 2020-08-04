@@ -1,6 +1,9 @@
 # Label_Tools
 Software to perform boundary box labeling.
-Reference: https://github.com/tzutalin/labelImg/tree/master/build-tools
+Reference: https://github.com/tzutalin/labelImg/tree/master
+
+### Installation
+Refer to installation notes in https://github.com/tzutalin/labelImg/tree/master
 
 ### Dependencies
 1. Anaconda
