@@ -11,6 +11,7 @@ except ImportError:
 
 from libs.shape import Shape
 from libs.utils import distance
+from libs.custom_scripts.center_box import getCenterBox
 
 CURSOR_DEFAULT = Qt.ArrowCursor
 CURSOR_POINT = Qt.PointingHandCursor
@@ -25,6 +26,7 @@ class Canvas(QWidget):
     zoomRequest = pyqtSignal(int)
     scrollRequest = pyqtSignal(int, int)
     newShape = pyqtSignal()
+    newShapes = pyqtSignal(int)
     selectionChanged = pyqtSignal(bool)
     shapeMoved = pyqtSignal()
     drawingPolygon = pyqtSignal(bool)
@@ -62,6 +64,13 @@ class Canvas(QWidget):
         self.setFocusPolicy(Qt.WheelFocus)
         self.verified = False
         self.drawSquare = False
+        # Custom Script
+        # 0: No script
+        self.customScriptOption = 0 
+        self.n_shapes=0
+
+    def setcustomScript(self, qScriptOption):
+        self.customScriptOption = qScriptOption
 
     def setDrawingColor(self, qColor):
         self.drawingLineColor = qColor
@@ -305,11 +314,11 @@ class Canvas(QWidget):
         self.update()
 
     def selectShapePoint(self, point):
-        """Select the first shape created which contains this point."""
+        """Select the first shape creatwed which contains this point."""
         self.deSelectShape()
         if self.selectedVertex():  # A vertex is marked for selection.
             index, shape = self.hVertex, self.hShape
-            shape.highlightVertex(index, shape.MOVE_VERTEX)
+            shape.highlightVertex(index,shape.MOVE_VERTEX)
             self.selectShape(shape)
             return
         for shape in reversed(self.shapes):
@@ -444,15 +453,19 @@ class Canvas(QWidget):
         p.scale(self.scale, self.scale)
         p.translate(self.offsetToCenter())
 
+        # Draw Already Labelled Boxes 20200805_1822@Fazle
         p.drawPixmap(0, 0, self.pixmap)
         Shape.scale = self.scale
         for shape in self.shapes:
             if (shape.selected or not self._hideBackround) and self.isVisible(shape):
                 shape.fill = shape.selected or shape == self.hShape
                 shape.paint(p)
-        if self.current:
+
+        # Draw the diagonal 20200805_1822@Fazle
+        if self.current :
             self.current.paint(p)
             self.line.paint(p)
+            
         if self.selectedShapeCopy:
             self.selectedShapeCopy.paint(p)
 
@@ -466,6 +479,7 @@ class Canvas(QWidget):
             brush = QBrush(Qt.BDiagPattern)
             p.setBrush(brush)
             p.drawRect(leftTop.x(), leftTop.y(), rectWidth, rectHeight)
+            # print("Live Draw:", leftTop, rightBottom)
 
         if self.drawing() and not self.prevPoint.isNull() and not self.outOfPixmap(self.prevPoint):
             p.setPen(QColor(0, 0, 0))
@@ -509,12 +523,50 @@ class Canvas(QWidget):
             self.update()
             return
 
+        #Add to shapes
         self.current.close()
         self.shapes.append(self.current)
-        self.current = None
-        self.setHiding(False)
-        self.newShape.emit()
+
+        # Custom Options        
+        if (self.customScriptOption == 1):
+            self.saveSnapshot(self.current.points, scale=self.scale, save_path="./roi_image_option-01.jpg")
+            with open ("./temp.txt", 'r') as f:
+                total_boxes = 0
+                for line in f.readlines():
+                    xmin, ymin, xmax, ymax, label = [(int(x) if x.isnumeric() else x) for x in line.strip().split(',')]
+                    xmin, ymin, xmax, ymax = getCenterBox(self.current.points[0].x(),\
+                            self.current.points[0].y(),\
+                            self.current.points[0].x(),\
+                            self.current.points[0].y())
+                    box = Shape()
+                    box.close()
+                    xmin, ymin, xmax, ymax = xmin+self.current.points[0].x(),\
+                            ymin+self.current.points[0].y(),\
+                            xmax+self.current.points[0].x(),\
+                            ymax+self.current.points[0].y()
+                            
+                    box.addPoint(QPoint(xmin,ymin))
+                    box.addPoint(QPoint(xmax,ymin))
+                    box.addPoint(QPoint(xmax,ymax))
+                    box.addPoint(QPoint(xmin,ymax))                    
+                    self.shapes.append(box)
+                    total_boxes = total_boxes +1
+
+            self.n_shapes = total_boxes + 1
+            self.current = None
+            self.setHiding(False)
+            self.newShapes.emit(self.n_shapes)
+
+        # Custom Options: Default        
+        # When we do not want to run any script on the area we have covered
+        else:
+            self.current = None
+            self.setHiding(False)
+            self.n_shapes=1
+            self.newShape.emit()
+            
         self.update()
+
 
     def closeEnough(self, p1, p2):
         #d = distance(p1 - p2)
@@ -667,6 +719,17 @@ class Canvas(QWidget):
             self.shapes[-1].fill_color = fill_color
 
         return self.shapes[-1]
+        
+    def setNthLabel(self, text, nth_shape, line_color  = None, fill_color = None):
+        assert text
+        self.shapes[nth_shape].label = text
+        if line_color:
+            self.shapes[nth_shape].line_color = line_color
+
+        if fill_color:
+            self.shapes[nth_shape].fill_color = fill_color
+
+        return self.shapes[nth_shape]
 
     def undoLastLine(self):
         assert self.shapes
@@ -677,11 +740,12 @@ class Canvas(QWidget):
 
     def resetAllLines(self):
         assert self.shapes
-        self.current = self.shapes.pop()
-        self.current.setOpen()
-        self.line.points = [self.current[-1], self.current[0]]
-        self.drawingPolygon.emit(True)
-        self.current = None
+        for i in range(self.n_shapes):
+            self.current = self.shapes.pop()
+            self.current.setOpen()
+            self.line.points = [self.current[-1], self.current[0]]
+            self.drawingPolygon.emit(True)
+            self.current = None
         self.drawingPolygon.emit(False)
         self.update()
 
@@ -722,3 +786,14 @@ class Canvas(QWidget):
 
     def setDrawingShapeToSquare(self, status):
         self.drawSquare = status
+
+    def saveSnapshot(self, vertices, scale, save_path="./temp.jpg"):
+        tl = vertices[0]
+        br = vertices[2]
+        w = (br.x() - tl.x())
+        h = (br.y() - tl.y())
+        crop = self.pixmap.copy(tl.x(), tl.y(), w,h)
+        crop.save(save_path)
+
+
+

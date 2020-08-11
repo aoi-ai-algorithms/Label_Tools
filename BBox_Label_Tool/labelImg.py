@@ -125,6 +125,20 @@ class MainWindow(QMainWindow, WindowMixin):
         useDefaultLabelContainer = QWidget()
         useDefaultLabelContainer.setLayout(useDefaultLabelQHBoxLayout)
 
+        # Create a widget for using custom script
+        self.useCustomScriptCheckbox = QCheckBox("Custom Script Option")
+        self.useCustomScriptCheckbox.setChecked(False)
+        self.useCustomScriptCheckbox.stateChanged.connect(self.setCustomScriptCheckboxChecked)
+        self.customScriptTextLine = QLineEdit()
+        self.customScriptTextLine.setEnabled(False)
+        self.customScriptTextLine.setText("0")
+        self.customScriptTextLine.textChanged.connect(self.customScriptOptionChanged)
+        useCustomScriptQHBoxLayout = QHBoxLayout()
+        useCustomScriptQHBoxLayout.addWidget(self.useCustomScriptCheckbox)
+        useCustomScriptQHBoxLayout.addWidget(self.customScriptTextLine)
+        useCustomScriptContainer = QWidget()
+        useCustomScriptContainer.setLayout(useCustomScriptQHBoxLayout)
+
         # Create a widget for edit and diffc button
         self.diffcButton = QCheckBox(getStr('useDifficult'))
         self.diffcButton.setChecked(False)
@@ -136,6 +150,7 @@ class MainWindow(QMainWindow, WindowMixin):
         listLayout.addWidget(self.editButton)
         listLayout.addWidget(self.diffcButton)
         listLayout.addWidget(useDefaultLabelContainer)
+        listLayout.addWidget(useCustomScriptContainer)
 
         # Create and add a widget for showing current label items
         self.labelList = QListWidget()
@@ -144,6 +159,7 @@ class MainWindow(QMainWindow, WindowMixin):
         self.labelList.itemActivated.connect(self.labelSelectionChanged)
         self.labelList.itemSelectionChanged.connect(self.labelSelectionChanged)
         self.labelList.itemDoubleClicked.connect(self.editLabel)
+
         # Connect to itemChanged to detect checkbox changes.
         self.labelList.itemChanged.connect(self.labelItemChanged)
         listLayout.addWidget(self.labelList)
@@ -181,6 +197,7 @@ class MainWindow(QMainWindow, WindowMixin):
         self.canvas.scrollRequest.connect(self.scrollRequest)
 
         self.canvas.newShape.connect(self.newShape)
+        self.canvas.newShapes.connect(self.newShapes)
         self.canvas.shapeMoved.connect(self.setDirty)
         self.canvas.selectionChanged.connect(self.shapeSelectionChanged)
         self.canvas.drawingPolygon.connect(self.toggleDrawingSensitive)
@@ -237,6 +254,7 @@ class MainWindow(QMainWindow, WindowMixin):
 
         createMode = action(getStr('crtBox'), self.setCreateMode,
                             'w', 'new', getStr('crtBoxDetail'), enabled=False)
+
         editMode = action('&Edit\nRectBox', self.setEditMode,
                           'Ctrl+J', 'edit', u'Move and edit Boxs', enabled=False)
 
@@ -715,6 +733,21 @@ class MainWindow(QMainWindow, WindowMixin):
                 self.canvas.setShapeVisible(shape, item.checkState() == Qt.Checked)
         except:
             pass
+        
+    def setCustomScriptCheckboxChecked(self):
+        if (self.useCustomScriptCheckbox.isChecked()):
+            self.customScriptTextLine.setEnabled(True)
+        else:        
+            self.customScriptTextLine.setText("0")
+            self.customScriptTextLine.setEnabled(False)
+            self.canvas.setcustomScript(0)
+
+    def customScriptOptionChanged(self, text):
+        if self.useCustomScriptCheckbox.isChecked():
+            if (text.isnumeric()):
+                text=text.strip()
+                self.canvas.setcustomScript(int (text))
+
 
     # React to canvas signals.
     def shapeSelectionChanged(self, selected=False):
@@ -882,6 +915,50 @@ class MainWindow(QMainWindow, WindowMixin):
         else:
             # self.canvas.undoLastLine()
             self.canvas.resetAllLines()
+
+    def newShapes(self, n_shapes):
+        """Pop-up and give focus to the label editor.
+
+        position MUST be in global coordinates.
+        """
+        if not self.useDefaultLabelCheckbox.isChecked() or not self.defaultLabelTextLine.text():
+            if len(self.labelHist) > 0:
+                self.labelDialog = LabelDialog(
+                    parent=self, listItem=self.labelHist)
+
+            # Sync single class mode from PR#106
+            if self.singleClassMode.isChecked() and self.lastLabel:
+                text = self.lastLabel
+            else:
+                text = self.labelDialog.popUp(text=self.prevLabelText)
+                self.lastLabel = text
+        else:
+            text = self.defaultLabelTextLine.text()
+
+        # Add Chris
+        self.diffcButton.setChecked(False)
+        if text is not None:
+            self.prevLabelText = text
+            generate_color = generateColorByText(text)
+
+            
+            for i in range(1, n_shapes+1, 1):
+                shape = self.canvas.setNthLabel(text, -i, generate_color, generate_color)
+                self.addLabel(shape)
+                
+            if self.beginner():  # Switch to edit mode.
+                self.canvas.setEditing(True)
+                self.actions.create.setEnabled(True)
+            else:
+                self.actions.editMode.setEnabled(True)
+            self.setDirty()
+
+            if text not in self.labelHist:
+                self.labelHist.append(text)
+        else:
+            # self.canvas.undoLastLine()
+            self.canvas.resetAllLines()
+    
 
     def scrollRequest(self, delta, orientation):
         units = - delta / (8 * 15)
