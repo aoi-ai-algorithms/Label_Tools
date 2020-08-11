@@ -12,6 +12,8 @@ except ImportError:
 from libs.shape import Shape
 from libs.utils import distance
 from libs.custom_scripts.center_box import getCenterBox
+from libs.custom_scripts.pad_detection import kmean_pad_detection
+import numpy as np
 
 CURSOR_DEFAULT = Qt.ArrowCursor
 CURSOR_POINT = Qt.PointingHandCursor
@@ -523,43 +525,88 @@ class Canvas(QWidget):
             self.update()
             return
 
-        #Add to shapes
-        self.current.close()
-        self.shapes.append(self.current)
-
-        # Custom Options        
+        # Add to shapes
+        # Custom Options: 1       
+        # This is a placeholder
+        # This is a placeholder
         if (self.customScriptOption == 1):
-            self.saveSnapshot(self.current.points, scale=self.scale, save_path="./roi_image_option-01.jpg")
-            with open ("./temp.txt", 'r') as f:
-                total_boxes = 0
-                for line in f.readlines():
-                    xmin, ymin, xmax, ymax, label = [(int(x) if x.isnumeric() else x) for x in line.strip().split(',')]
-                    xmin, ymin, xmax, ymax = getCenterBox(self.current.points[0].x(),\
-                            self.current.points[0].y(),\
-                            self.current.points[0].x(),\
-                            self.current.points[0].y())
-                    box = Shape()
-                    box.close()
-                    xmin, ymin, xmax, ymax = xmin+self.current.points[0].x(),\
-                            ymin+self.current.points[0].y(),\
-                            xmax+self.current.points[0].x(),\
-                            ymax+self.current.points[0].y()
-                            
-                    box.addPoint(QPoint(xmin,ymin))
-                    box.addPoint(QPoint(xmax,ymin))
-                    box.addPoint(QPoint(xmax,ymax))
-                    box.addPoint(QPoint(xmin,ymax))                    
-                    self.shapes.append(box)
-                    total_boxes = total_boxes +1
+            crop = self.getCrop(self.current.points)
+            img = self.convertQPixmapToMat(crop)
+            results = kmean_pad_detection(img)
+            total_boxes = 0
+            for result in results:
+                xmin, ymin, xmax, ymax = result[0], result[1], result[2], result[3]
+                box = Shape()
+                box.close()
+                xmin, ymin, xmax, ymax = xmin+self.current.points[0].x(),\
+                    ymin+self.current.points[0].y(),\
+                    xmax+self.current.points[0].x(),\
+                    ymax+self.current.points[0].y()
+                    
+                box.addPoint(QPoint(xmin,ymin))
+                box.addPoint(QPoint(xmax,ymin))
+                box.addPoint(QPoint(xmax,ymax))
+                box.addPoint(QPoint(xmin,ymax))                    
+                self.shapes.append(box)
+                total_boxes = total_boxes +1
 
-            self.n_shapes = total_boxes + 1
             self.current = None
             self.setHiding(False)
+            self.n_shapes = total_boxes
             self.newShapes.emit(self.n_shapes)
+
+
+        #  elif (self.customScriptOption == 3):
+        #     xmin, ymin, xmax, ymax = getCenterBox(self.current.points[0].x(),\
+        #             self.current.points[0].y(),\
+        #             self.current.points[2].x(),\
+        #             self.current.points[2].y())
+        #     box = Shape()
+        #     box.close()
+        #     box.addPoint(QPoint(xmin,ymin))
+        #     box.addPoint(QPoint(xmax,ymin))
+        #     box.addPoint(QPoint(xmax,ymax))
+        #     box.addPoint(QPoint(xmin,ymax))                    
+        #     self.shapes.append(box)
+        #     self.n_shapes = 2
+        #     self.current.close()
+        #     self.shapes.append(self.current)
+        #     self.current = None
+        #     self.setHiding(False)
+        #     self.newShapes.emit(self.n_shapes)
+
+        # # Custom Options: 2        
+        # # When we do not want to run any script on the area we have covered
+        # elif (self.customScriptOption == 2):
+        #     self.saveSnapshot(self.current.points, scale=self.scale, save_path="./roi_image_option-01.jpg")
+        #     with open ("./temp.txt", 'r') as f:
+        #         total_boxes = 0
+        #         for line in f.readlines():
+        #             xmin, ymin, xmax, ymax, label = [(int(x) if x.isnumeric() else x) for x in line.strip().split(',')]
+        #             box = Shape()
+        #             box.close()
+        #             xmin, ymin, xmax, ymax = xmin+self.current.points[0].x(),\
+        #                     ymin+self.current.points[0].y(),\
+        #                     xmax+self.current.points[0].x(),\
+        #                     ymax+self.current.points[0].y()
+        #             box.addPoint(QPoint(xmin,ymin))
+        #             box.addPoint(QPoint(xmax,ymin))
+        #             box.addPoint(QPoint(xmax,ymax))
+        #             box.addPoint(QPoint(xmin,ymax))                    
+        #             self.shapes.append(box)
+        #             total_boxes = total_boxes +1
+        #     self.n_shapes = total_boxes + 1
+        #     self.current.close()
+        #     self.shapes.append(self.current)
+        #     self.current = None
+        #     self.setHiding(False)
+        #     self.newShapes.emit(self.n_shapes)
 
         # Custom Options: Default        
         # When we do not want to run any script on the area we have covered
         else:
+            self.current.close()
+            self.shapes.append(self.current)
             self.current = None
             self.setHiding(False)
             self.n_shapes=1
@@ -787,13 +834,29 @@ class Canvas(QWidget):
     def setDrawingShapeToSquare(self, status):
         self.drawSquare = status
 
-    def saveSnapshot(self, vertices, scale, save_path="./temp.jpg"):
+    def getCrop(self, vertices, save_path=None):
         tl = vertices[0]
         br = vertices[2]
         w = (br.x() - tl.x())
         h = (br.y() - tl.y())
         crop = self.pixmap.copy(tl.x(), tl.y(), w,h)
-        crop.save(save_path)
+        if (save_path): 
+            crop.save(save_path)
+        return crop
+
+    def convertQPixmapToMat(self, incomingPixmap):
+        '''  Converts a QImage into an opencv MAT format  '''
+        
+        incomingImage = incomingPixmap.toImage()
+        incomingImage = incomingImage.convertToFormat(4)
+
+        width = incomingImage.width()
+        height = incomingImage.height()
+
+        ptr = incomingImage.bits()
+        ptr.setsize(incomingImage.byteCount())
+        arr = np.array(ptr).reshape(height, width, 4)  #  Copies the data
+        return arr
 
 
 
